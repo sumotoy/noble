@@ -1,12 +1,13 @@
 # noble
 
+[![Build Status](https://travis-ci.org/sandeepmistry/noble.svg?branch=master)](https://travis-ci.org/sandeepmistry/noble)
 [![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/sandeepmistry/noble?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-A node.js BLE (Bluetooth low energy) central module.
+A Node.js BLE (Bluetooth Low Energy) central module.
 
 Want to implement a peripheral? Checkout [bleno](https://github.com/sandeepmistry/bleno)
 
-__Note:__ Mac OS X and Linux are currently the only supported OSes. Other platforms may be developed later on (see Roadmap below).
+__Note:__ Mac OS X, Linux and Windows are currently the only supported OSes. Other platforms may be developed later on.
 
 ## Prerequisites
 
@@ -14,7 +15,7 @@ __Note:__ Mac OS X and Linux are currently the only supported OSes. Other platfo
 
  * install [Xcode](https://itunes.apple.com/ca/app/xcode/id497799835?mt=12)
 
-### Linux (Ubuntu)
+### Linux
 
  * Kernel version 3.6 or above
  * ```libbluetooth-dev```
@@ -22,12 +23,43 @@ __Note:__ Mac OS X and Linux are currently the only supported OSes. Other platfo
 #### Ubuntu/Debian/Raspbian
 
 ```sh
-sudo apt-get install bluetooth bluez-utils libbluetooth-dev
+sudo apt-get install bluetooth bluez libbluetooth-dev libudev-dev
+```
+
+Make sure ```node``` is on your path, if it's not, some options:
+ * symlink ```nodejs``` to ```node```: ```sudo ln -s /usr/bin/nodejs /usr/bin/node```
+ * [install Node.js using the NodeSource package](https://nodejs.org/en/download/package-manager/#debian-and-ubuntu-based-linux-distributions)
+
+#### Fedora / Other-RPM based
+
+```sh
+sudo yum install bluez bluez-libs bluez-libs-devel
 ```
 
 #### Intel Edison
 
 See [Configure Intel Edison for Bluetooth LE (Smart) Development](http://rexstjohn.com/configure-intel-edison-for-bluetooth-le-smart-development/)
+
+### Windows
+
+ * [node-gyp requirements for Windows](https://github.com/TooTallNate/node-gyp#installation)
+   * Python 2.7
+   * Visual Studio ([Express](https://www.visualstudio.com/en-us/products/visual-studio-express-vs.aspx))
+ * [node-bluetooth-hci-socket prerequisites](https://github.com/sandeepmistry/node-bluetooth-hci-socket#windows)
+   * Compatible Bluetooth 4.0 USB adapter
+   * [WinUSB](https://msdn.microsoft.com/en-ca/library/windows/hardware/ff540196(v=vs.85).aspx) driver setup for Bluetooth 4.0 USB adapter, using [Zadig tool](http://zadig.akeo.ie/)
+
+See [@don](https://github.com/don)'s set up guide on [Bluetooth LE with Node.js and Noble on Windows](https://www.youtube.com/watch?v=mL9B8wuEdms).
+
+## Notes
+
+### Maximum simultaneous connections
+
+| Platform |     |
+| :------- | --- |
+| OS X 10.11 (El Capitan) | 6 |
+| Linux/Windows - Adapter dependent | |
+| | 5 (CSR based adapter) |
 
 ## Install
 
@@ -55,8 +87,10 @@ noble.startScanning([], true); // any service UUID, allow duplicates
 var serviceUUIDs = ["<service UUID 1>", ...]; // default: [] => all
 var allowDuplicates = <false|true>; // default: false
 
-noble.startScanning(serviceUUIDs, allowDuplicates); // particular UUID's
+noble.startScanning(serviceUUIDs, allowDuplicates[, callback(error)]); // particular UUID's
 ```
+
+__NOTE:__ ```noble.state``` must be ```poweredOn``` before scanning is started. ```noble.on('stateChange', callback(state));``` can be used register for state change events.
 
 #### Stop scanning
 
@@ -152,7 +186,8 @@ characteristic.broadcast(broadcast[, callback(error)]); // broadcast is true|fal
 characteristic.notify(notify[, callback(error)]); // notify is true|false
 ```
 
-  * use for characteristics with notifiy or indicate properties
+  * allows notification to trigger `'data'` event
+  * use for characteristics with notify or indicate properties
 
 ##### Discover descriptors
 
@@ -188,6 +223,8 @@ peripheral.writeHandle(handle, data, withoutResponse, callback(error));
 
 ### Events
 
+See [Node.js EventEmitter docs](https://nodejs.org/api/events.html) for more info. on API's.
+
 #### Adapter state change
 
 ```javascript
@@ -202,17 +239,24 @@ noble.on('stateChange', callback(state));
 noble.on('scanStart', callback);
 ```
 
+The event is emitted when scanning is started or if another application enables scanning or changes scanning settings.
+
 #### Scan stopped
 
 ```javascript
 noble.on('scanStop', callback);
 ```
 
-#### Peripheral discovered:
+The event is emitted when scanning is stopped or if another application stops scanning.
+
+#### Peripheral discovered
 
 ```javascript
 peripheral = {
-  uuid: "<uuid>",
+  id: "<id>",
+  address: "<BT address">, // Bluetooth Address of device, or 'unknown' if not known
+  addressType: "<BT address type>", // Bluetooth Address type (public, random), or 'unknown' if not known
+  connectable: <connectable>, // true or false, or undefined if not known
   advertisement: {
     localName: "<name>",
     txPowerLevel: <int>,
@@ -232,30 +276,36 @@ peripheral = {
 noble.on('discover', callback(peripheral));
 ```
 
+#### Warnings
+
+```javascript
+noble.on('warning', callback(message));
+```
+
 #### Peripheral
 
 ##### Connected
 
 ```javascript
-peripheral.on('connect', callback);
+peripheral.once('connect', callback);
 ```
 
 ##### Disconnected:
 
 ```javascript
-peripheral.on('disconnect', callback);
+peripheral.once('disconnect', callback);
 ```
 
 ##### RSSI update
 
 ```javascript
-peripheral.on('rssiUpdate', callback(rssi));
+peripheral.once('rssiUpdate', callback(rssi));
 ```
 
 ##### Services discovered
 
 ```javascript
-peripheral.on('servicesDiscover', callback(services));
+peripheral.once('servicesDiscover', callback(services));
 ```
 
 #### Service
@@ -263,7 +313,7 @@ peripheral.on('servicesDiscover', callback(services));
 ##### Included services discovered
 
 ```javascript
-service.on('includedServicesDiscover', callback(includedServiceUuids));
+service.once('includedServicesDiscover', callback(includedServiceUuids));
 ```
 
 ##### Characteristics discovered
@@ -275,19 +325,19 @@ characteristic = {
   properties: [...]
 };
 
-service.on('characteristicsDiscover', callback(characteristics));
+service.once('characteristicsDiscover', callback(characteristics));
 ```
 
 #### Characteristic
 
 ##### Data
 
-Emitted when characteristic read has completed, result of ```characteristic.read(...)``` or characteristic value has been updated by peripheral via notification or indication.
+Emitted when characteristic read has completed, result of ```characteristic.read(...)``` or characteristic value has been updated by peripheral via notification or indication - after having been enabled with ```notify(true[, callback(error)])```.
 
 ```javascript
 characteristic.on('data', callback(data, isNotification));
 
-characteristic.on('read', callback(data, isNotification)); // legacy
+characteristic.once('read', callback(data, isNotification)); // legacy
 ```
 
 ##### Write
@@ -295,7 +345,7 @@ characteristic.on('read', callback(data, isNotification)); // legacy
 Emitted when characteristic write has completed, result of ```characteristic.write(...)```.
 
 ```javascript
-characteristic.on('write', withoutResponse, callback());
+characteristic.once('write', withoutResponse, callback());
 ```
 
 ##### Broadcast
@@ -303,7 +353,7 @@ characteristic.on('write', withoutResponse, callback());
 Emitted when characteristic broadcast state changes, result of ```characteristic.broadcast(...)```.
 
 ```javascript
-characteristic.on('broadcast', callback(state));
+characteristic.once('broadcast', callback(state));
 ```
 
 ##### Notify
@@ -311,7 +361,7 @@ characteristic.on('broadcast', callback(state));
 Emitted when characteristic notification state changes, result of ```characteristic.notify(...)```.
 
 ```javascript
-characteristic.on('notify', callback(state));
+characteristic.once('notify', callback(state));
 ```
 
 ##### Descriptors discovered
@@ -321,7 +371,7 @@ descriptor = {
   uuid: '<uuid>'
 };
 
-characteristic.on('descriptorsDiscover', callback(descriptors));
+characteristic.once('descriptorsDiscover', callback(descriptors));
 ```
 
 #### Descriptor
@@ -329,26 +379,26 @@ characteristic.on('descriptorsDiscover', callback(descriptors));
 ##### Value read
 
 ```javascript
-descriptor.on('valueRead', data);
+descriptor.once('valueRead', data);
 ```
 
 ##### Value write
 
 ```javascript
-descriptor.on('valueWrite');
+descriptor.once('valueWrite');
 ```
 
 ## Running on Linux
 
 ### Running without root/sudo
 
-Run the following command in the directory you ran ```npm install``` from:
+Run the following command:
 
 ```sh
-find -path '*noble*Release/hci-ble' -exec sudo setcap cap_net_raw+eip '{}' \;
+sudo setcap cap_net_raw+eip $(eval readlink -f `which node`)
 ```
 
-This grants noble's ```hci-ble``` binary ```cap_net_raw``` privileges, so it can start/stop scanning for BLE devices.
+This grants the ```node``` binary ```cap_net_raw``` privileges, so it can start/stop BLE advertising.
 
 __Note:__ The above command requires ```setcap``` to be installed, it can be installed using the following:
 
@@ -373,78 +423,6 @@ By default noble waits for both the advertisement data and scan response data fo
 ```sh
 sudo NOBLE_REPORT_ALL_HCI_EVENTS=1 node <your file>.js
 ```
-
-## Roadmap (TODO)
-
- * Mac OS X:
-   * ~~Adapter state (unknown | reseting | unsupported | unauthorized | off | on)~~
-   * ~~Scan~~
-      * ~~startScanning~~
-         * ~~service UUID's~~
-         * ~~allow duplicates~~
-      * ~~stopScanning~~
-   * ~~Peripheral~~
-     * ~~discovered~~
-     * ~~connect~~
-     * ~~disconnect/cancel connect~~
-     * ~~update RSSI~~
-     * ~~services~~
-         * ~~discover~~
-         * ~~disover included~~
-         * ~~discover characteristics for services~~
-     * ~~characteristics~~
-         * ~~read~~
-         * ~~write~~
-         * ~~set broadcast value~~
-         * ~~set notify/indicate value~~
-         * ~~descriptors~~
-             * ~~discover~~
-             * ~~read~~
-             * ~~write~~
-     * ~~handle~~
-         * ~~read~~
-         * ~~write~~
-             * ~~with response~~
-             * without response
-   * error handling
-
- * Linux
-   * ~~Adapter state (unsupported | unauthorized | off | on)~~
-   * ~~Scan~~
-      * ~~startScanning~~
-         * ~~service UUID's~~
-         * ~~allow duplicates~~
-      * ~~stopScanning~~
-   * ~~Peripheral~~
-     * ~~discovered~~
-     * ~~connect~~
-         * ~~public address~~
-         * ~~random address~~
-     * ~~disconnect/cancel connect~~
-     * ~~update RSSI~~
-     * ~~services~~
-         * ~~discover~~
-             * ~~filter by uuid~~
-         * ~~discover included~~
-         * ~~discover characteristics for services~~
-             * ~~filter by uuid~~
-     * ~~characteristics~~
-         * ~~read~~
-         * ~~write~~
-         * ~~set broadcast value~~
-         * ~~set notify/indicate value~~
-         * ~~descriptors~~
-             * ~~discover~~
-             * ~~read~~
-             * ~~write~~
-     * ~~handle~~
-         * ~~read~~
-         * ~~write~~
-             * ~~with response~~
-             * ~~without response~~
-   * error handling
- * Windows
-   * TDB (most likely Windows 8 only)
 
 ## Useful Links
 
